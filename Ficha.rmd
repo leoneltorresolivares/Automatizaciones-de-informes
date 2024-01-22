@@ -1,0 +1,806 @@
+---
+title: ""
+author: ""
+output:
+  pdf_document:
+    latex_engine: xelatex  # o pdflatex, según tu configuración
+params:
+  codigo_demre: 35029
+  periodo: 2018
+header-includes:
+  - \usepackage{colortbl}
+  - \usepackage[table]{xcolor}
+  - \usepackage{multirow}
+  - |
+    \usepackage{fancyhdr}
+    \pagestyle{fancy}
+    \fancyfoot[C]{Los puntajes PPS indicados en el IPA corresponden a los estudiantes regulares.\\Se considera para la ficha los estudiantes matriculados.\\La tasa de ocupación de vacantes es distinta a la postulacion efectiva.}
+---
+
+
+```{r, echo=F, message=F, warning=F}
+# Tabla 1 de puntajes PPS
+library(readxl)
+library(dplyr)
+setwd("C:/Users/DELL/Desktop/Fichas")
+# Problemas con los digitos, con esto lo arreglo
+options(digits = 5)
+BD <- read_excel("IPA.xlsx", sheet = "Sheet1")
+# Mantener nombre facil
+names(BD)[6] <- "Cod_demre"
+#length(codigos_ipa)
+codigo_demre <- params$codigo_demre #NO MODIFICAR A MENOS QUE LA AUTO FALLE
+codigos_ipa <- unique(BD$Cod_demre)
+periodo <- params$periodo
+periodos_ipa <- unique(BD$Año)
+# Asegurarse que los periodos de hombre y mujer sean el mismo, si cambian se van a la chucha (Cita: Gonzalo Gonzalez 18/12/2023)
+if(codigo_demre %in% codigos_ipa){
+    BD_aux <- subset(BD, BD$Cod_demre == codigo_demre)
+    BD_aux <- as.data.frame(BD_aux)
+    jornada <- BD_aux[1,5]
+    sede <- BD_aux[1,4]
+    if(periodo %in% periodos_ipa){
+        BD_aux <- subset(BD_aux, BD_aux$Año >= periodo)
+        BD_aux <- subset(BD_aux, BD_aux$Año <= periodo + 4)
+        # Por mujer y hombre para los datos de genero
+        mujer <- subset(BD_aux, BD_aux$SEXO == "Femenino")
+        #View(mujer)
+        mujers <- mujer$PPS
+        #dim(mujer)
+        hombre <- subset(BD_aux, BD_aux$SEXO == "Masculino")
+        hombres <- hombre$PPS
+        # Tome los vectores y le agregue los 0 en caso de que el programa no cumpla con los periodos
+        if(length(mujers) < 5){
+            cantidad <- 5 - length(mujers)
+            if(periodo+4 > max(periodos_ipa)){
+                mujers <- c(mujers, rep(0, cantidad))
+                hombres <-  c(hombres, rep(0, cantidad))
+            }else{
+                mujers <- c(rep(0, cantidad), mujers)
+                hombres <- c(rep(0, cantidad), hombres)
+            }
+        }
+        # NA tipicos
+        mujers[is.na(mujers)] <- 0
+        hombres[is.na(hombres)] <- 0
+        # Puntajes sin sexo
+        pps <- read.csv("pps_sin_sexo.csv")
+        #View(vacantes)
+        pps_2 <- subset(pps, pps$Cod.Demre == codigo_demre & pps$Año >= periodo)
+        pps_2 <- subset(pps_2, pps_2$Cod.Demre == codigo_demre & pps_2$Año <= periodo + 4)
+        pps_2 <- pps_2$PPS
+        if(length(pps_2) < 5){
+            cantidad <- 5 - length(pps_2)
+            if(periodo+4 > max(periodos_ipa)){
+                pps_2 <- c(pps_2, rep(0, cantidad))
+            }else{
+                pps_2 <- c(rep(0, cantidad), pps_2)
+            }
+        }
+    }else{
+        pps_2 <- c(rep(0, 5))
+        mujers <- c(rep(0, 5))
+        hombres <- c(rep(0, 5))
+    }
+}else{
+    pps_2 <- c(rep(0, 5))
+    mujers <- c(rep(0, 5))
+    hombres <- c(rep(0, 5))
+    BD_aux <- matrix(0, 4, 4)
+    jornada <- ""
+    sede <- ""
+}
+pps_total <- read_excel("RETENCION ANALIZADO 281123.xlsx", sheet = "Ptje Prom x Sexo y General")
+periodo_inicio_pps_total <- as.numeric(names(pps_total)[3])
+periodo_final_pps_total <- as.numeric(names(pps_total)[21])
+periodos_pps_total <- seq(from = periodo_inicio_pps_total, to = periodo_final_pps_total, by = 1)
+# Cambiar los nombres de las columnas (mala importacion)
+colnames(pps_total) <- pps_total[1,]
+# Matar fila sobrante
+pps_total <- pps_total[-1,]
+codigos_retencion <- unique(pps_total$CARRERA)
+
+if(codigo_demre %in% codigos_retencion & periodo %in% periodos_pps_total){
+    pps_total_programa <- subset(pps_total, pps_total$CARRERA == codigo_demre)
+    # Porblemas con los decimales, los redondeo a 2 digitos y evito los NA cambiando por 0
+    for (i in 1:3) {
+        for (j in 3:ncol(pps_total_programa)) {
+            # Verificar si el valor no está vacío y no es NA
+            if (!is.na(pps_total_programa[i, j]) && pps_total_programa[i, j] != "") {
+            # Intentar convertir a numérico y redondear
+                nuevo_valor <- suppressWarnings(round(as.numeric(pps_total_programa[i, j]), 2))
+                # Asegurarse de que la columna tenga el tipo de datos correcto (numérico)
+                pps_total_programa[[j]] <- as.numeric(pps_total_programa[[j]])
+                # Asignar el nuevo valor
+                pps_total_programa[i, j] <- nuevo_valor
+            } else {
+                # Asegurarse de que la columna tenga el tipo de datos correcto (numérico)
+                pps_total_programa[[j]] <- as.numeric(pps_total_programa[[j]])
+                # Asignar 0 si el valor es NA o vacío
+                pps_total_programa[i, j] <- 0
+            }
+        }
+    }
+    pps_total_programa <- as.data.frame(pps_total_programa)
+    # Para la optimizacion
+    columnas <- ncol(pps_total_programa)-2
+    # Calcular los promedios teniendo en consideracion que si es 0 no se considere para el promedio (se dividiria en 3)
+    suma_filas <- c()
+    for(i in 1:(columnas/3)){
+        cuentas <- c()
+        for(j in 1:nrow(pps_total_programa)){
+            if(pps_total_programa[j,5+3*(i-1)] != 0){
+                cuentas <- c(cuentas, pps_total_programa[j,5+3*(i-1)])
+            }
+        }
+        valor <- mean(cuentas)
+        suma_filas <- c(suma_filas, valor)
+    }
+    suma_filas <- round(suma_filas,2)
+    suma_filas[is.na(suma_filas)] <- 0
+    suma_filas <- rbind(seq(periodo_inicio_pps_total, periodo_final_pps_total, 1), suma_filas)
+    columnas_seleccionadas <- pps_total_programa[, grepl("General", names(pps_total_programa))]
+    pps_total_programa <- columnas_seleccionadas
+    names(pps_total_programa) <- seq(periodo_inicio_pps_total, periodo_final_pps_total, by = 1)
+    aux <- NULL
+    aux_2 <- NULL
+    # Ahora hay que tomar los 5 valores correspondientes a los periodos
+    for(i in 1:ncol(pps_total_programa)){
+        if(as.numeric(names(pps_total_programa)[i]) >= periodo){
+            va <- pps_total_programa[[i]]
+            aux <- cbind(aux, va)
+        }
+        if(as.numeric(suma_filas[1,i]) >= periodo){
+            va <- suma_filas[2,i]
+            aux_2 <- cbind(aux_2, va)
+        }
+    }
+    if(is.null(aux)){
+        cantidad <- 5 - ncol(aux)
+        va <- matrix(0, nrow = 3, ncol = cantidad)
+        aux <- cbind(aux, va)
+        aux_2 <- c(aux_2, rep(0, cantidad))
+    }
+    if(ncol(aux) < 5){
+        cantidad <- 5 - ncol(aux)
+        va <- matrix(0, nrow = 3, ncol = cantidad)
+        aux <- cbind(aux, va)
+        aux_2 <- c(aux_2, rep(0, cantidad))
+    }
+    pps_total_programa <- aux
+    suma_filas <- aux_2
+}else{
+    pps_total_programa <- matrix(0, nrow = 3, ncol = 5)
+    suma_filas <- c(rep(0, 10))
+}
+```
+
+
+\begin{center}
+    \large\textbf{Carrera: `r BD_aux[1,3]`}\\
+    \large\textbf{Jornada : `r jornada`}\\
+    \large\textbf{Sede : `r sede`}
+\end{center}
+
+\begin{center}
+    \large\textbf{Puntaje promedio de admisión (PPS)}
+\end{center}
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{|c|c|c|c|c|c|}
+        \hline
+         & \cellcolor{gray!25}`r periodo` & \cellcolor{gray!25}`r periodo+1` & \cellcolor{gray!25}`r periodo+2` & \cellcolor{gray!25}`r periodo+3` & \cellcolor{gray!25}`r periodo+4` \\ \hline
+        \multicolumn{1}{|c|}{\cellcolor{gray!25}Por jornada} & \multicolumn{5}{|c|}{\cellcolor{gray!25}} \\ \hline
+        Regular & `r pps_total_programa[1,1]` & `r pps_total_programa[1,2]` & `r pps_total_programa[1,3]` & `r pps_total_programa[1,4]` & `r pps_total_programa[1,5]`\\ \hline
+        Regular especial & `r pps_total_programa[2,1]` & `r pps_total_programa[2,2]` & `r pps_total_programa[2,3]` & `r pps_total_programa[2,4]` & `r pps_total_programa[2,5]` \\ \hline
+        No cohorte & `r pps_total_programa[3,1]` & `r pps_total_programa[3,2]` & `r pps_total_programa[3,3]` & `r pps_total_programa[3,4]` & `r pps_total_programa[3,5]` \\ \hline
+        Total & `r suma_filas[1]` & `r suma_filas[2]` & `r suma_filas[3]` & `r suma_filas[4]` & `r suma_filas[5]` \\ \hline
+        \multicolumn{1}{|c|}{\cellcolor{gray!25}Modalidad Presencial} & \multicolumn{5}{|c|}{\cellcolor{gray!25}} \\ \hline
+        Regular &  `r pps_total_programa[1,1]` & `r pps_total_programa[1,2]` & `r pps_total_programa[1,3]` & `r pps_total_programa[1,4]` & `r pps_total_programa[1,5]`\\ \hline
+        Regular especial & `r pps_total_programa[2,1]` & `r pps_total_programa[2,2]` & `r pps_total_programa[2,3]` & `r pps_total_programa[2,4]` & `r pps_total_programa[2,5]` \\ \hline
+        No cohorte & `r pps_total_programa[3,1]` & `r pps_total_programa[3,2]` & `r pps_total_programa[3,3]` & `r pps_total_programa[3,4]` & `r pps_total_programa[3,5]` \\ \hline
+        Total & `r suma_filas[1]` & `r suma_filas[2]` & `r suma_filas[3]` & `r suma_filas[4]` & `r suma_filas[5]` \\ \hline
+        \multicolumn{1}{|c|}{\cellcolor{gray!25}Por genero} & \multicolumn{5}{|c|}{\cellcolor{gray!25}} \\ \hline
+        Mujer & `r mujers[1]` & `r mujers[2]` & `r mujers[3]` & `r mujers[4]`& `r mujers[5]` \\ \hline
+        Hombre & `r hombres[1]` & `r hombres[2]` & `r hombres[3]` & `r hombres[4]`& `r hombres[5]` \\ \hline
+        \cellcolor{gray!25}Total & `r pps_2[length(pps_2)-4]`& `r pps_2[length(pps_2)-3]`& `r pps_2[length(pps_2)-2]`& `r pps_2[length(pps_2)-1]`& `r pps_2[length(pps_2)]`\\ \hline
+    \end{tabular}
+\end{table}
+
+
+```{r, echo=F, warning=F, message=F}
+# Valor a sumar
+# Si el codigo no esta rellenar con 0 (Consejo de Gonzalo Gonzalez)
+library(dplyr)
+if(codigo_demre %in% codigos_ipa){
+    BD_aux <- subset(BD, BD$Cod_demre == codigo_demre)
+    if(periodo %in% periodos_ipa){
+        BD_aux <- subset(BD_aux, BD_aux$Año >= periodo)
+        BD_aux <- subset(BD_aux, BD_aux$Año <= periodo + 4)
+        mujer <- subset(BD_aux, BD_aux$SEXO == "Femenino")
+        hombre <- subset(BD_aux, BD_aux$SEXO == "Masculino")
+        suma <- c("Matrícula 1 Año Todas las Vías","Matrícula Primer Año PSU/PDT")
+        suma_mujer <- mujer[,suma]
+        suma_hombre <- hombre[,suma]
+        suma_mujer[is.na(suma_mujer)] <- 0
+        suma_hombre[is.na(suma_hombre)] <- 0
+        # Cambiar nombres
+        names(suma_mujer)[1:2] <- c("Todas_vias","Regular")
+        names(suma_hombre)[1:2] <- c("Todas_vias","Regular")
+        # Poner las matriculas especiales
+        suma_mujer <- suma_mujer %>% mutate(especial = Todas_vias-Regular)
+        suma_hombre <- suma_hombre %>% mutate(especial = Todas_vias-Regular)
+        sumas <- suma_mujer
+        sumas <- (suma_mujer + suma_hombre)
+        pond_mujer <- round((suma_mujer/sumas)*100,2)
+    }else{
+        pond_mujer <- rep(0, 10)
+    }
+}else{
+    pond_mujer <- rep(0, 10)
+}
+
+# Para la tabla 2, las  tasas de ocupacion de vacantes
+vacantes <- read.csv("vacantes_carrera.csv")
+codigos_vacantes <- unique(vacantes$Cod.Demre)
+periodos_vacantes <- unique(vacantes$PERIODO)
+#periodo <- 2019
+#periodo <- periodo + 4
+#codigo_demre <- 35069
+if(codigo_demre %in% codigos_vacantes){
+    vacantes_2 <- subset(vacantes, vacantes$Cod.Demre == codigo_demre)
+    if(periodo %in% periodos_vacantes){
+        #periodo <- periodo - 
+        vacantes_2 <- subset(vacantes_2, vacantes_2$PERIODO >= periodo)
+        vacantes_2 <- subset(vacantes_2, vacantes_2$PERIODO <= periodo + 4)
+        # Los trabaje como vector por problemas con los data frames
+        vacantes_regulares <- vacantes_2$Vacantes.PDT.PSU.Regulares
+        matriculados_regulares <- sumas$Regular
+        matriculados_especial <- sumas$especial
+        # Tasa
+        tasa_vacantes_regulares <- round(matriculados_regulares/vacantes_regulares,4)*100
+        tasa_vacantes_especial <- round(matriculados_especial/vacantes_regulares,4)*100
+        mat_mujer <- suma_mujer$Regular
+        mat_mujer_especial <- suma_mujer$especial  
+        # Porcentaje de mujer
+        tasa_vacantes_mujer <- round(mat_mujer/vacantes_regulares,4)*100
+        tasa_vacantes_mujer_especial <- round(mat_mujer_especial/vacantes_regulares,4)*100
+        tasa_matricula_total <- round(sumas$Todas_vias/vacantes_regulares,4)*100
+        tasa_mujer_total <- pond_mujer$Todas_vias
+        # Siempre que estan estas lineas de codigo es solo para en caso de que el programa no tenga los periodos solicitados
+        if(length(tasa_vacantes_regulares) < 5){
+            cantidad <- 5 - length(tasa_vacantes_regulares)
+            if(periodo+4 > max(periodos_vacantes)){
+                tasa_vacantes_regulares <- c(tasa_vacantes_regulares, rep(0, cantidad))
+                tasa_vacantes_especial <- c(tasa_vacantes_especial, rep(0, cantidad))
+                tasa_vacantes_mujer <- c(tasa_vacantes_mujer, rep(0, cantidad))
+                tasa_vacantes <- c(tasa_vacantes, rep(0, cantidad))
+                tasa_matricula_total <- c(tasa_matricula_total, rep(0, cantidad))
+                tasa_mujer_total <- c(tasa_mujer_total, rep(0, cantidad))
+                tasa_vacantes_mujer_especial <- c(tasa_vacantes_mujer_especial, rep(0, cantidad))
+            }else{
+                tasa_vacantes_regulares <- c(rep(0, cantidad), tasa_vacantes_regulares)
+                tasa_vacantes_especial <- c(rep(0, cantidad), tasa_vacantes_especial)
+                tasa_vacantes_mujer <- c(rep(0, cantidad), tasa_vacantes_mujer)
+                tasa_vacantes_mujer_especial <- c(rep(0, cantidad), tasa_vacantes_mujer_especial)
+                tasa_matricula_total <- c(rep(0, cantidad), tasa_matricula_total)
+                tasa_mujer_total <- c(rep(0, cantidad), tasa_mujer_total)
+            }
+        }
+    }else{
+        #periodo <- periodo - 4
+        tasa_vacantes_regulares <- rep(0, 5)
+        tasa_vacantes_especial <- rep(0, 5)
+        tasa_vacantes_mujer <- rep(0, 5)
+        tasa_vacantes_mujer_especial <- rep(0, 5)
+        tasa_matricula_total <- rep(0, 5)
+        tasa_mujer_total <- rep(0, 5)
+    }
+}else{
+    tasa_vacantes_regulares <- rep(0, 5)
+    tasa_vacantes_especial <- rep(0, 5)
+    tasa_vacantes_mujer <- rep(0, 5)
+    tasa_vacantes_mujer_especial <- rep(0, 5)
+    tasa_matricula_total <- rep(0, 5)
+    tasa_mujer_total <- rep(0, 5)
+}
+```
+
+\begin{center}
+    \large\textbf{Tasa de ocupación de vacantes}
+\end{center}
+
+\begin{table}[h]
+    \centering
+    {\footnotesize
+    \setlength{\tabcolsep}{0.5pt}
+    \begin{tabular}{|c|c|c|c|c|c|c|c|c|c|c|}
+        \hline
+        \multirow{2}{*}{} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo`} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo+1`} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo+2`} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo+3`} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo+4`} \\ 
+        & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) \\ \hline
+        \cellcolor{gray!25}Por jornada & \multicolumn{10}{c|}{\cellcolor{gray!25}} \\ \hline
+        Regular & `r tasa_vacantes_regulares[1]`\% &`r tasa_vacantes_mujer[1]`\% & `r tasa_vacantes_regulares[2]`\% & `r tasa_vacantes_mujer[2]`\% & `r tasa_vacantes_regulares[3]`\% & `r tasa_vacantes_mujer[3]`\% & `r tasa_vacantes_regulares[4]`\% & `r tasa_vacantes_mujer[4]`\% & `r tasa_vacantes_regulares[5]`\% & `r tasa_vacantes_mujer[5]`\% \\ \hline
+        Regular especial & `r tasa_vacantes_especial[1]`\% & `r tasa_vacantes_mujer_especial[1]`\% & `r tasa_vacantes_especial[2]`\% & `r tasa_vacantes_mujer_especial[2]`\% & `r tasa_vacantes_especial[3]`\% & `r tasa_vacantes_mujer_especial[3]`\% & `r tasa_vacantes_especial[4]`\% & `r tasa_vacantes_mujer_especial[4]`\% & `r tasa_vacantes_especial[5]`\% & `r tasa_vacantes_mujer_especial[5]`\% \\ \hline
+        No cohorte & & & & & & & & & & \\ \hline
+        Total & & & & & & & & & & \\ \hline
+        \cellcolor{gray!25}Modalidad Presencial & \multicolumn{10}{c|}{\cellcolor{gray!25}} \\ \hline
+        Regular & `r tasa_vacantes_regulares[1]`\% &`r tasa_vacantes_mujer[1]`\% & `r tasa_vacantes_regulares[2]`\% & `r tasa_vacantes_mujer[2]`\% & `r tasa_vacantes_regulares[3]`\% & `r tasa_vacantes_mujer[3]`\% & `r tasa_vacantes_regulares[4]`\% & `r tasa_vacantes_mujer[4]`\% & `r tasa_vacantes_regulares[5]`\% & `r tasa_vacantes_mujer[5]`\% \\ \hline
+        Regular especial & `r tasa_vacantes_especial[1]`\% & `r tasa_vacantes_mujer_especial[1]`\% & `r tasa_vacantes_especial[2]`\% & `r tasa_vacantes_mujer_especial[2]`\% & `r tasa_vacantes_especial[3]`\% & `r tasa_vacantes_mujer_especial[3]`\% & `r tasa_vacantes_especial[4]`\% & `r tasa_vacantes_mujer_especial[4]`\% & `r tasa_vacantes_especial[5]`\% & `r tasa_vacantes_mujer_especial[5]`\% \\ \hline
+        No cohorte & & & & & & & & & & \\ \hline
+        Total & & & & & & & & & & \\ \hline
+        \cellcolor{gray!25}Tipo de admisión & \multicolumn{10}{c|}{\cellcolor{gray!25}} \\ \hline
+        Postulantes admisión centralizada o regular & `r tasa_vacantes_regulares[1]`\% &`r tasa_vacantes_mujer[1]`\% & `r tasa_vacantes_regulares[2]`\% & `r tasa_vacantes_mujer[2]`\% & `r tasa_vacantes_regulares[3]`\% & `r tasa_vacantes_mujer[3]`\% & `r tasa_vacantes_regulares[4]`\% & `r tasa_vacantes_mujer[4]`\% & `r tasa_vacantes_regulares[5]`\% & `r tasa_vacantes_mujer[5]`\%  \\ \hline
+        Postulantes admisión directa o especial & `r tasa_vacantes_especial[1]`\% & `r tasa_vacantes_mujer_especial[1]`\% & `r tasa_vacantes_especial[2]`\% & `r tasa_vacantes_mujer_especial[2]`\% & `r tasa_vacantes_especial[3]`\% & `r tasa_vacantes_mujer_especial[3]`\% & `r tasa_vacantes_especial[4]`\% & `r tasa_vacantes_mujer_especial[4]`\% & `r tasa_vacantes_especial[5]`\% & `r tasa_vacantes_mujer_especial[5]`\% \\ \hline
+        Postulantes admisión PAP & & & & & & & & & & \\ \hline
+        Otras & & & & & & & & & & \\ \hline
+        \cellcolor{gray!25}Total &`r tasa_matricula_total[1]`\% & `r tasa_mujer_total[1]`\% & `r tasa_matricula_total[2]`\% & `r tasa_mujer_total[2]`\% & `r tasa_matricula_total[3]`\% & `r tasa_mujer_total[3]`\% & `r tasa_matricula_total[4]`\% & `r tasa_mujer_total[4]`\% & `r tasa_matricula_total[5]`\% & `r tasa_mujer_total[5]`\% \\ \hline
+    \end{tabular}
+    }
+\end{table}
+
+\newpage
+
+```{r, echo=F, warning=F, message=F}
+library(dplyr)
+# Tabla 3 de la ficha, matriculas primer años
+# Esta base es muy pesada, intentar no cargarla más de una vez
+BASE <- read_excel("MAT_PREGRADO MOD 291123.xlsx", sheet = "MAT_PREGRADO")
+# dim(BASE)
+#names(BASE)
+BASE_2 <-  BASE[,c("ID_RUT","PERIODO","SEXO","NOMBRE_CARRERA","FACULTAD","COD DEMRE","SEDE FINAL","AÑO INGRESO PRIMER AÑO CARRERA ACTUAL","AÑO DE INGRESO CARRERA ORIGEN","PRIMER AÑO","VIA DE INGRESO","COHORTE/NO COHORTE")]
+# dim(BASE_2)
+# View(BASE_2)
+#names(BASE_2)
+names(BASE_2)[6] <- "Codigo_demre"
+names(BASE_2)[7] <- "sede"
+names(BASE_2)[8] <- "AÑO_del_primer_AÑO"
+names(BASE_2)[9] <-  "AÑO_carrera_origen"
+names(BASE_2)[10] <- "primer_AÑO"
+names(BASE_2)[11] <- "via_ingreso"
+names(BASE_2)[12] <- "Cohorte_no_cohorte"
+codigos_tasas <- unique(BASE_2$Codigo_demre)
+periodos_tasas <- unique(BASE_2$PERIODO)
+periodos_estandar <- seq(periodo, periodo + 4, 1)
+if(codigo_demre %in% codigos_tasas | periodo %in% periodos_estandar){
+    programa_base_2 <- subset(BASE_2, BASE_2$Codigo_demre == codigo_demre & BASE_2$PERIODO >= periodo)
+    programa_base_2 <- subset(programa_base_2, programa_base_2$primer_AÑO == "PRIMER AÑO")
+    ped_estandar <- seq(from = periodo, to = periodo + 4, by = 1)
+    periodos_tasas <- sort(periodos_tasas)
+    # Años faltantes
+    # Diferencias de peridos
+    diferencias <- setdiff(ped_estandar, periodos_tasas)
+    regular <- c()
+    regular_f <- c()
+    especial <- c()
+    especial_f <- c()
+    no_cohorte <- c()
+    no_cohorte_f <- c()
+    # Valores por cohorte, especial y no cohorte
+    for(i in 1:length(periodos_estandar)){
+        va <- subset(programa_base_2, programa_base_2$PERIODO == periodos_estandar[i])
+
+        df_regular <- subset(va, va$Cohorte_no_cohorte == "COHORTE")
+        regular <- c(regular, nrow(df_regular))
+        df_regular <- subset(df_regular, df_regular$SEXO == "F")
+        regular_f <- c(regular_f, nrow(df_regular))
+
+        df_especial <- subset(va, va$Cohorte_no_cohorte == "COHORTE ESPECIAL")
+        especial <- c(especial, nrow(df_especial))
+        df_especial <- subset(df_especial, df_especial$SEXO == "F")
+        especial_f <- c(especial_f, nrow(df_especial))
+
+        df_no_cohorte <- subset(va, va$Cohorte_no_cohorte == "NO COHORTE")
+        no_cohorte <- c(no_cohorte, nrow(df_no_cohorte))
+        df_no_cohorte <- subset(df_no_cohorte, df_no_cohorte$SEXO == "F")
+        no_cohorte_f <- c(no_cohorte_f, nrow(df_no_cohorte))
+    }
+    suma_todas_cohortes <- regular + especial + no_cohorte
+    suma_m_mat_1 <- regular_f + especial_f + no_cohorte_f
+    tasa_total_mat_1 <- round(suma_m_mat_1/suma_todas_cohortes,4)*100
+    t_regular <- round(regular_f/regular*100,2)
+    t_especial <- round(especial_f/especial*100,2)
+    t_no_cohorte <- round(no_cohorte_f/no_cohorte*100,2)
+    t_regular[is.na(t_regular)] <- 0
+    t_especial[is.na(t_especial)] <- 0
+    t_no_cohorte[is.na(t_no_cohorte)] <- 0
+    tasa_total_mat_1[is.na(tasa_total_mat_1)] <- 0
+    # Funcion de emergencia por los valores TRUE y FALSE
+    if(length(t_regular) < 5){
+        cantidad <- 5 - length(t_regular)
+        suma_todas_cohortes <- c(suma_todas_cohortes, rep(0, cantidad))
+        regular <- c(regular, rep(0, cantidad))
+        especial <- c(especial, rep(0, cantidad))
+        no_cohorte <- c(no_cohorte, rep(0, cantidad))
+        t_regular <- c(t_regular, rep(0, cantidad))
+        t_especial <- c(t_especial, rep(0, cantidad))
+        t_no_cohorte <- c(t_no_cohorte, rep(0, cantidad))
+        tasa_total_mat_1 <- c(tasa_total_mat_1, rep(0, cantidad))
+    }
+    pivote3 <- length(t_regular)
+    # Lo mismo pero para via de ingreso
+    via_1_pdf <- c()
+    via_1_M <- c()
+    via_2_pdf <- c()
+    via_2_M <- c()
+    via_3_pdf <- c()
+    via_3_M <- c()
+    via_4_pdf <- c()
+    via_4_M <- c()
+    for(i in 1:length(periodos_estandar)){
+        va <- subset(programa_base_2, programa_base_2$PERIODO == periodos_estandar[i])
+
+        va_r <- sum(va$via_ingreso == "PSU") + sum(va$via_ingreso == "P.A.A.")
+        via_1_pdf <- c(via_1_pdf, va_r)
+        va_r <- subset(va, va$SEXO == "F")
+        va_r_2 <- sum(va_r$via_ingreso == "PSU") + sum(va_r$via_ingreso == "P.A.A.")
+        via_1_M <- c(via_1_M, va_r_2)
+
+        va_r <- sum(va$via_ingreso == "ADM.ESP.TRABAJADOR") + sum(va$via_ingreso == "AGENTE PASTORAL") + sum(va$via_ingreso == "BECA CHILE BRAVO") + sum(va$via_ingreso == "CONVENIO") + sum(va$via_ingreso == "DISCAPACIDAD") + sum(va$via_ingreso == "PACE") + sum(va$via_ingreso == "PAT") + sum(va$via_ingreso == "RANKING 850") + sum(va$via_ingreso == "TALENTO ARTISTICO")
+        via_2_pdf <- c(via_2_pdf, va_r)
+        va_r <- subset(va, va$SEXO == "F")
+        va_r_2 <- sum(va_r$via_ingreso == "ADM.ESP.TRABAJADOR") + sum(va_r$via_ingreso == "AGENTE PASTORAL") + sum(va_r$via_ingreso == "BECA CHILE BRAVO") + sum(va_r$via_ingreso == "CONVENIO") + sum(va_r$via_ingreso == "DISCAPACIDAD") + sum(va_r$via_ingreso == "PACE") + sum(va_r$via_ingreso == "PAT") + sum(va_r$via_ingreso == "RANKING 850") + sum(va_r$via_ingreso == "TALENTO ARTISTICO")
+        via_2_M <- c(via_2_M, va_r_2)
+
+        va_r <- sum(va$via_ingreso == "100% E.I.") + sum(va$via_ingreso == "CAMBIO DE UNIVERSIDAD") + sum(va$via_ingreso == "DEPORTISTA") + sum(va$via_ingreso == "EXTRANJERO") + sum(va$via_ingreso == "MOVILIDAD INTERNA") + sum(va$via_ingreso == "OTROS") + sum(va$via_ingreso == "PERSONAL CONSAGRADO") + sum(va$via_ingreso == "REORIENTACION") + sum(va$via_ingreso == "TITULADO")
+        via_4_pdf <- c(via_4_pdf, va_r)
+        va_r <- subset(va, va$SEXO == "F")
+        va_r_2 <- sum(va_r$via_ingreso == "100% E.I.") + sum(va_r$via_ingreso == "CAMBIO DE UNIVERSIDAD") + sum(va_r$via_ingreso == "DEPORTISTA") + sum(va_r$via_ingreso == "EXTRANJERO") + sum(va_r$via_ingreso == "MOVILIDAD INTERNA") + sum(va_r$via_ingreso == "OTROS") + sum(va_r$via_ingreso == "PERSONAL CONSAGRADO") + sum(va_r$via_ingreso == "REORIENTACION") + sum(va_r$via_ingreso == "TITULADO")
+        via_4_M <- c(via_4_M, va_r_2)
+
+        va_r <- sum(va$via_ingreso == "HABILITA PEDAGOGIA")
+        via_3_pdf <- c(via_3_pdf, va_r)
+        va_r <- subset(va, va$SEXO == "F")
+        va_r_2 <- sum(va_r$via_ingreso == "HABILITA PEDAGOGIA")
+        via_3_M <- c(via_3_M, va_r_2)
+    }
+    suma_vias <-  via_1_pdf + via_2_pdf + via_3_pdf + via_4_pdf
+    suma_m_vias <- via_1_M + via_2_M + via_3_M + via_4_M
+    tasa_vias <- round(suma_m_vias/suma_vias,4)*100
+    t_via_1 <- round(via_1_M/via_1_pdf,4)*100
+    t_via_2 <- round(via_2_M/via_2_pdf,4)*100
+    t_via_3 <- round(via_3_M/via_3_pdf,4)*100
+    t_via_4 <- round(via_4_M/via_4_pdf,4)*100
+    t_via_1[is.na(t_via_1)] <- 0
+    t_via_2[is.na(t_via_2)] <- 0
+    t_via_3[is.na(t_via_3)] <- 0
+    t_via_4[is.na(t_via_4)] <- 0
+    tasa_vias[is.na(tasa_vias)] <- 0
+    if(length(t_via_1) < 5){
+        cantidad <- 5 - length(t_via_1)
+        suma_vias <- c(suma_vias, rep(0, cantidad))
+        suma_m_vias <- c(suma_m_vias, rep(0, cantidad))
+        tasa_vias <- c(tasa_vias, rep(0, cantidad))
+        t_via_1 <- c(t_via_1, rep(0, cantidad))
+        t_via_2 <- c(t_via_2, rep(0, cantidad))
+        t_via_3 <- c(t_via_3, rep(0, cantidad))
+        t_via_4 <- c(t_via_4, rep(0, cantidad))
+        via_1_pdf <- c(via_1_pdf, rep(0, cantidad))
+        via_2_pdf <- c(via_2_pdf, rep(0, cantidad))
+        via_3_pdf <- c(via_3_pdf, rep(0, cantidad))
+        via_4_pdf <- c(via_4_pdf, rep(0, cantidad))
+    }
+}else{
+    regular <- rep(0, 5)
+    t_regular <- rep(0, 5)
+    especial <- rep(0, 5)
+    t_especial <- rep(0, 5)
+    t_no_cohorte <- rep(0, 5)
+    no_cohorte <- rep(0, 5)
+    suma_todas_cohortes <- rep(0, 5)
+    tasa_total_mat_1 <- rep(0, 5)
+    suma_vias <- rep(0, 5)
+    t_via_1 <- rep(0, 5)
+    t_via_2 <- rep(0, 5)
+    t_via_3 <- rep(0, 5)
+    t_via_4 <- rep(0, 5)
+    via_1_pdf <- rep(0, 5)
+    via_2_pdf <- rep(0, 5)
+    via_3_pdf <- rep(0, 5)
+    via_4_pdf <- rep(0, 5)
+    tasa_vias <- rep(0, 5)
+}
+```
+
+\begin{center}
+    \large\textbf{Matricula nueva según cohorte}
+\end{center}
+
+\begin{table}[h]
+    \centering
+    {\small
+    \setlength{\tabcolsep}{0.5pt}
+    \begin{tabular}{|c|c|c|c|c|c|c|c|c|c|c|}
+        \hline
+        \multirow{2}{*}{} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo`} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo+1`} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo+2`} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo+3`} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo+4`}\\ 
+        & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) \\ \hline
+        \cellcolor{gray!25}Por jornada & \multicolumn{10}{c|}{\cellcolor{gray!25}} \\ \hline
+        Regular & `r regular[pivote3-4]` & `r t_regular[pivote3-4]`\% & `r regular[pivote3-3]` & `r t_regular[pivote3-3]`\% & `r regular[pivote3-2]`& `r t_regular[pivote3-2]`\% &`r regular[pivote3-1]` & `r t_regular[pivote3-1]`\% & `r regular[pivote3]`& `r t_regular[pivote3]`\% \\ \hline
+        Regular especial & `r especial[pivote3-4]`& `r t_especial[pivote3-4]`\% & `r especial[pivote3-3]`& `r t_especial[pivote3-3]`\% &`r especial[pivote3-2]` & `r t_especial[pivote3-2]`\% & `r especial[pivote3-1]`& `r t_especial[pivote3-1]`\% & `r especial[pivote3]`& `r t_especial[pivote3]`\% \\ \hline
+        No cohorte & `r no_cohorte[pivote3-4]` & `r t_no_cohorte[pivote3-4]`\% & `r no_cohorte[pivote3-3]` & `r t_no_cohorte[pivote3-3]`\% & `r no_cohorte[pivote3-2]` & `r t_no_cohorte[pivote3-2]`\% & `r no_cohorte[pivote3-1]` & `r t_no_cohorte[pivote3-1]`\% & `r no_cohorte[pivote3]` & `r t_no_cohorte[pivote3]`\% \\ \hline
+        Total & `r suma_todas_cohortes[pivote3-4]`&`r tasa_total_mat_1[pivote3-4]`\% & `r suma_todas_cohortes[pivote3-3]`&`r tasa_total_mat_1[pivote3-3]`\% & `r suma_todas_cohortes[pivote3-2]`& `r tasa_total_mat_1[pivote3-2]`\% &`r suma_todas_cohortes[pivote3-1]` & `r tasa_total_mat_1[pivote3-1]`\% & `r suma_todas_cohortes[pivote3]`& `r tasa_total_mat_1[pivote3]`\%\\ \hline
+        \cellcolor{gray!25}Modalidad Presencial & \multicolumn{10}{c|}{\cellcolor{gray!25}} \\ \hline
+        Regular & `r regular[pivote3-4]` & `r t_regular[pivote3-4]`\% & `r regular[pivote3-3]`& `r t_regular[pivote3-3]`\% & `r regular[pivote3-2]`& `r t_regular[pivote3-2]`\% &`r regular[pivote3-1]` & `r t_regular[pivote3-1]`\% & `r regular[pivote3]`& `r t_regular[pivote3]`\% \\ \hline
+        Regular especial & `r especial[pivote3-4]`& `r t_especial[pivote3-4]`\%  & `r especial[pivote3-3]`& `r t_especial[pivote3-3]`\% &`r especial[pivote3-2]` & `r t_especial[pivote3-2]`\% & `r especial[pivote3-1]`& `r t_especial[pivote3-1]`\% & `r especial[pivote3]`& `r t_especial[pivote3]`\% \\ \hline
+        No cohorte & `r no_cohorte[pivote3-4]` & `r t_no_cohorte[pivote3-4]`\% & `r no_cohorte[pivote3-3]` & `r t_no_cohorte[pivote3-3]`\% & `r no_cohorte[pivote3-2]` & `r t_no_cohorte[pivote3-2]`\% & `r no_cohorte[pivote3-1]` & `r t_no_cohorte[pivote3-1]`\% & `r no_cohorte[pivote3]` & `r t_no_cohorte[pivote3]`\%  \\ \hline
+        Total & `r suma_todas_cohortes[pivote3-4]`&`r tasa_total_mat_1[pivote3-4]`\% & `r suma_todas_cohortes[pivote3-3]`&`r tasa_total_mat_1[pivote3-3]`\% & `r suma_todas_cohortes[pivote3-2]`& `r tasa_total_mat_1[pivote3-2]`\% &`r suma_todas_cohortes[pivote3-1]` & `r tasa_total_mat_1[pivote3-1]`\% & `r suma_todas_cohortes[pivote3]`& `r tasa_total_mat_1[pivote3]`\% \\ \hline
+        \cellcolor{gray!25}Tipo de admisión & \multicolumn{10}{c|}{\cellcolor{gray!25}} \\ \hline
+        Postulantes admisión centralizada o regular & `r via_1_pdf[pivote3-4]`& `r t_via_1[pivote3-4]`\% &`r via_1_pdf[pivote3-3]` &`r t_via_1[pivote3-3]`\% & `r via_1_pdf[pivote3-2]`&`r t_via_1[pivote3-2]`\% &`r via_1_pdf[pivote3-1]` & `r t_via_1[pivote3-1]`\% &`r via_1_pdf[pivote3]` & `r t_via_1[pivote3]`\% \\ \hline
+        Postulantes admisión directa o especial & `r via_2_pdf[pivote3-4]`& `r t_via_2[pivote3-4]`\% &`r via_2_pdf[pivote3-3]` &`r t_via_2[pivote3-3]`\% & `r via_2_pdf[pivote3-2]`&`r t_via_2[pivote3-2]`\% &`r via_2_pdf[pivote3-1]` & `r t_via_2[pivote3-1]`\% &`r via_2_pdf[pivote3]` & `r t_via_2[pivote3]`\% \\ \hline
+        Postulantes admisión PAP & `r via_3_pdf[pivote3-4]`& `r t_via_3[pivote3-4]`\% &`r via_3_pdf[pivote3-3]` &`r t_via_3[pivote3-3]`\% & `r via_3_pdf[pivote3-2]`&`r t_via_3[pivote3-2]`\% &`r via_3_pdf[pivote3-1]` & `r t_via_3[pivote3-1]`\% &`r via_3_pdf[pivote3]` & `r t_via_3[pivote3]`\% \\ \hline
+        Otras & `r via_4_pdf[pivote3-4]`& `r t_via_4[pivote3-4]`\% &`r via_4_pdf[pivote3-3]` &`r t_via_4[pivote3-3]`\% & `r via_4_pdf[pivote3-2]`&`r t_via_4[pivote3-2]`\% &`r via_4_pdf[pivote3-1]` & `r t_via_4[pivote3-1]`\% &`r via_4_pdf[pivote3]` & `r t_via_4[pivote3]`\% \\ \hline
+        \cellcolor{gray!25}Total & `r suma_vias[pivote3-4]`&`r tasa_vias[pivote3-4]`\% &`r suma_vias[pivote3-3]` &`r tasa_vias[pivote3-3]`\% & `r suma_vias[pivote3-2]`& `r tasa_vias[pivote3-2]`\% &`r suma_vias[pivote3-1]` &`r tasa_vias[pivote3-1]`\% & `r suma_vias[pivote3]`& `r tasa_vias[pivote3]`\% \\ \hline
+    \end{tabular}
+    }
+\end{table}
+
+
+```{r, echo=F, warning=F, message=F}
+# BD grande, no se carga se toma el objeto de arriba
+BASE_2 <-  BASE[,c("ID_RUT","PERIODO","SEXO","NOMBRE_CARRERA","FACULTAD","COD DEMRE","SEDE FINAL","AÑO INGRESO PRIMER AÑO CARRERA ACTUAL","AÑO DE INGRESO CARRERA ORIGEN","PRIMER AÑO","VIA DE INGRESO","COHORTE/NO COHORTE","TIPO_ADMISION")]
+names(BASE_2)[6] <- "Codigo_demre"
+names(BASE_2)[7] <- "sede"
+names(BASE_2)[8] <- "AÑO_del_primer_AÑO"
+names(BASE_2)[9] <-  "AÑO_carrera_origen"
+names(BASE_2)[10] <- "primer_AÑO"
+names(BASE_2)[11] <- "via_ingreso"
+names(BASE_2)[12] <- "Cohorte_no_cohorte"
+if(codigo_demre %in% codigos_tasas | periodo %in% periodos_tasas){
+    matriculas <- subset(BASE_2, BASE_2$Codigo_demre == codigo_demre & BASE_2$PERIODO >= periodo)
+    matriculas <- subset(matriculas, matriculas$PERIODO <= periodo + 4)
+    #View(matriculas)
+    # Lo mismo de antes pero por matriculas
+    matricula_total_regular <- c()
+    matricula_total_regular_f <- c()
+    matricula_total_especial <- c()
+    matricula_total_especial_f <- c()
+    matricula_total_no_cohorte <- c()
+    matricula_total_no_cohorte_f <- c()
+    diferencias <- setdiff(ped_estandar, periodos_tasas)
+    for(i in 1:length(periodos_estandar)){
+        va <- subset(matriculas, matriculas$PERIODO == periodos_estandar[i])
+
+        va2 <- subset(va, va$Cohorte_no_cohorte == "COHORTE")
+        matricula_total_regular <- c(matricula_total_regular, nrow(va2))
+        va2 <- subset(va2, va2$SEXO == "F")
+        matricula_total_regular_f <- c(matricula_total_regular_f, nrow(va2))
+
+        va2 <- subset(va, va$Cohorte_no_cohorte == "COHORTE ESPECIAL")
+        matricula_total_especial <- c(matricula_total_especial, nrow(va2))
+        va2 <- subset(va2, va2$SEXO == "F")
+        matricula_total_especial_f <- c(matricula_total_especial_f, nrow(va2))
+
+        va2 <- subset(va, va$Cohorte_no_cohorte == "NO COHORTE")
+        matricula_total_no_cohorte <- c(matricula_total_no_cohorte, nrow(va2))
+        va2 <- subset(va2, va2$SEXO == "F")
+        matricula_total_no_cohorte_f <- c(matricula_total_no_cohorte_f, nrow(va2))
+    }
+    suma_matriculas <-  matricula_total_especial + matricula_total_no_cohorte + matricula_total_regular
+    suma_matriculas_f <- matricula_total_especial_f + matricula_total_no_cohorte_f + matricula_total_regular_f
+    tasa_matriculas <- round(suma_matriculas_f/suma_matriculas,4)*100
+    t_matricula_regular <- round(matricula_total_regular_f/matricula_total_regular,4)*100
+    t_matricula_especial <- round(matricula_total_especial_f/matricula_total_especial,4)*100
+    t_matricula_no_cohorte <- round(matricula_total_no_cohorte_f/matricula_total_no_cohorte,4)*100
+    t_matricula_regular[is.na(t_matricula_regular)] <- 0
+    t_matricula_especial[is.na(t_matricula_especial)] <- 0
+    t_matricula_no_cohorte[is.na(t_matricula_no_cohorte)] <- 0
+    tasa_matriculas[is.na(tasa_matriculas)] <- 0
+    if(length(t_matricula_especial) < 5){
+        cantidad <- 5 - length(t_matricula_especial)
+        suma_matriculas <- c(suma_matriculas, rep(0, cantidad))
+        suma_matriculas_f <- c(suma_matriculas_f, rep(0, cantidad))
+        tasa_matriculas <- c(tasa_matriculas, rep(0, cantidad))
+        t_matricula_regular <- c(t_matricula_regular, rep(0, cantidad))
+        t_matricula_especial <- c(t_matricula_especial, rep(0, cantidad))
+        t_matricula_no_cohorte <- c(t_matricula_no_cohorte, rep(0, cantidad))
+        matricula_total_regular <- c(matricula_total_regular, rep(0, 5))
+        matricula_total_especial <- c(matricula_total_especial, rep(0, 5))
+        matricula_total_no_cohorte <- c(matricula_total_no_cohorte, rep(0, 5))
+    }
+    # Ahora vias de ingreso (otra vez...)
+    via_1_pdf2 <- c()
+    via_1_M2 <- c()
+    via_2_pdf2 <- c()
+    via_2_M2 <- c()
+    via_3_pdf2 <- c()
+    via_3_M2 <- c()
+    via_4_pdf2 <- c()
+    via_4_M2 <- c()
+    #unique(programa_base_2$via_ingreso)
+    for(i in 1:length(periodos_estandar)){
+        va <- subset(matriculas, matriculas$PERIODO == periodos_estandar[i])
+
+        va_r <- sum(va$via_ingreso == "PSU") + sum(va$via_ingreso == "P.A.A.")
+        via_1_pdf2 <- c(via_1_pdf2, va_r)
+        va_r <- subset(va, va$SEXO == "F")
+        va_r_2 <- sum(va_r$via_ingreso == "PSU") + sum(va_r$via_ingreso == "P.A.A.")
+        via_1_M2 <- c(via_1_M2, va_r_2)
+
+        va_r <- sum(va$via_ingreso == "ADM.ESP.TRABAJADOR") + sum(va$via_ingreso == "AGENTE PASTORAL") + sum(va$via_ingreso == "BECA CHILE BRAVO") + sum(va$via_ingreso == "CONVENIO") + sum(va$via_ingreso == "DISCAPACIDAD") + sum(va$via_ingreso == "PACE") + sum(va$via_ingreso == "PAT") + sum(va$via_ingreso == "RANKING 850") + sum(va$via_ingreso == "TALENTO ARTISTICO")
+        via_2_pdf2 <- c(via_2_pdf2, va_r)
+        va_r <- subset(va, va$SEXO == "F")
+        va_r_2 <- sum(va_r$via_ingreso == "ADM.ESP.TRABAJADOR") + sum(va_r$via_ingreso == "AGENTE PASTORAL") + sum(va_r$via_ingreso == "BECA CHILE BRAVO") + sum(va_r$via_ingreso == "CONVENIO") + sum(va_r$via_ingreso == "DISCAPACIDAD") + sum(va_r$via_ingreso == "PACE") + sum(va_r$via_ingreso == "PAT") + sum(va_r$via_ingreso == "RANKING 850") + sum(va_r$via_ingreso == "TALENTO ARTISTICO")
+        via_2_M2 <- c(via_2_M2, va_r_2)
+
+        va_r <- sum(va$via_ingreso == "100% E.I.") + sum(va$via_ingreso == "CAMBIO DE UNIVERSIDAD") + sum(va$via_ingreso == "DEPORTISTA") + sum(va$via_ingreso == "EXTRANJERO") + sum(va$via_ingreso == "MOVILIDAD INTERNA") + sum(va$via_ingreso == "OTROS") + sum(va$via_ingreso == "PERSONAL CONSAGRADO") + sum(va$via_ingreso == "REORIENTACION") + sum(va$via_ingreso == "TITULADO")
+        via_4_pdf2 <- c(via_4_pdf2, va_r)
+        va_r <- subset(va, va$SEXO == "F")
+        va_r_2 <- sum(va_r$via_ingreso == "100% E.I.") + sum(va_r$via_ingreso == "CAMBIO DE UNIVERSIDAD") + sum(va_r$via_ingreso == "DEPORTISTA") + sum(va_r$via_ingreso == "EXTRANJERO") + sum(va_r$via_ingreso == "MOVILIDAD INTERNA") + sum(va_r$via_ingreso == "OTROS") + sum(va_r$via_ingreso == "PERSONAL CONSAGRADO") + sum(va_r$via_ingreso == "REORIENTACION") + sum(va_r$via_ingreso == "TITULADO")
+        via_4_M2 <- c(via_4_M2, va_r_2)
+
+        va_r <- sum(va$via_ingreso == "HABILITA PEDAGOGIA")
+        via_3_pdf2 <- c(via_3_pdf2, va_r)
+        va_r <- subset(va, va$SEXO == "F")
+        va_r_2 <- sum(va_r$via_ingreso == "HABILITA PEDAGOGIA")
+        via_3_M2 <- c(via_3_M2, va_r_2)
+    }
+    suma_vias2 <-  via_1_pdf2 + via_2_pdf2 + via_3_pdf2 + via_4_pdf2
+    suma_m_vias2 <- via_1_M2 + via_2_M2 + via_3_M2 + via_4_M2
+    tasa_vias2 <- round(suma_m_vias2/suma_vias2,4)*100
+    t_via_12 <- round(via_1_M2/via_1_pdf2,4)*100
+    t_via_22 <- round(via_2_M2/via_2_pdf2,4)*100
+    t_via_32 <- round(via_3_M2/via_3_pdf2,4)*100
+    t_via_42 <- round(via_4_M2/via_4_pdf2,4)*100
+    t_via_12[is.na(t_via_12)] <- 0
+    t_via_22[is.na(t_via_22)] <- 0
+    t_via_32[is.na(t_via_32)] <- 0
+    t_via_42[is.na(t_via_42)] <- 0
+    if(length(t_via_12) < 5){
+        cantidad <- 5 - length(t_via_12)
+        suma_vias2 <- c(suma_vias2, rep(0, cantidad))
+        suma_m_vias2 <- c(suma_m_vias2, rep(0, cantidad))
+        tasa_vias2 <- c(tasa_vias2, rep(0, cantidad))
+        t_via_12 <- c(t_via_12, rep(0, cantidad))
+        t_via_22 <- c(t_via_22, rep(0, cantidad))
+        t_via_32 <- c(t_via_32, rep(0, cantidad))
+        t_via_42 <- c(t_via_42, rep(0, cantidad))
+        via_1_pdf2 <- c(via_1_pdf2, rep(0, cantidad))
+        via_2_pdf2 <- c(via_2_pdf2, rep(0, cantidad))
+        via_3_pdf2 <- c(via_3_pdf2, rep(0, cantidad))
+        via_4_pdf2 <- c(via_4_pdf2, rep(0, cantidad))
+    }
+}else{
+    suma_matriculas <- rep(0, 5)
+    tasa_matriculas <- rep(0, 5)
+    t_matricula_regular <- rep(0, 5)
+    t_matricula_especial <- rep(0, 5)
+    t_matricula_no_cohorte <- rep(0, 5)
+    matricula_total_regular <- rep(0, 5)
+    matricula_total_especial <- rep(0, 5)
+    matricula_total_no_cohorte <- rep(0, 5)
+    t_via_12 <- rep(0, 5)
+    t_via_22 <- rep(0, 5)
+    t_via_32 <- rep(0, 5)
+    t_via_42 <- rep(0, 5)
+    via_1_pdf2 <- rep(0, 5)
+    via_2_pdf2 <- rep(0, 5)
+    via_3_pdf2 <- rep(0, 5)
+    via_4_pdf2 <- rep(0, 5)
+}
+
+```
+
+\begin{center}
+    \large\textbf{Matricula total}
+\end{center}
+
+\begin{table}[h]
+    \centering
+    {\small
+    \setlength{\tabcolsep}{0.5pt}
+    \begin{tabular}{|c|c|c|c|c|c|c|c|c|c|c|}
+        \hline
+        \multirow{2}{*}{} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo`} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo+1`} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo+2`} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo+3`} & \multicolumn{2}{|c|}{\cellcolor{gray!25}`r periodo+4`} \\ \cline{2-11}
+        & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) & \cellcolor{gray!25}Total & \cellcolor{gray!25}Mujer(\%) \\ \hline
+        \cellcolor{gray!25}Por jornada & \multicolumn{10}{c|}{\cellcolor{gray!25}} \\ \hline
+        Regular & `r matricula_total_regular[1]`& `r t_matricula_regular[1]`\% & `r matricula_total_regular[2]`& `r t_matricula_regular[2]`\% & `r matricula_total_regular[3]`& `r t_matricula_regular[3]`\% &`r matricula_total_regular[4]` & `r t_matricula_regular[4]`\% & `r matricula_total_regular[5]`& `r t_matricula_regular[5]`\% \\ \hline
+        Regular especial & `r matricula_total_especial[1]`& `r t_matricula_especial[1]`\% & `r matricula_total_especial[2]`& `r t_matricula_especial[2]`\% &`r matricula_total_especial[3]`& `r t_matricula_especial[3]`\% & `r matricula_total_especial[4]`& `r t_matricula_especial[4]`\% & `r matricula_total_especial[5]`& `r t_matricula_especial[5]`\% \\ \hline
+        No cohorte & `r matricula_total_no_cohorte[1]`& `r t_matricula_no_cohorte[1]`\% & `r matricula_total_no_cohorte[2]`& `r t_matricula_no_cohorte[2]`\% & `r matricula_total_no_cohorte[3]`& `r t_matricula_no_cohorte[3]`\% & `r matricula_total_no_cohorte[4]`& `r t_matricula_no_cohorte[4]`\% & `r matricula_total_no_cohorte[5]`& `r t_matricula_no_cohorte[5]`\% \\ \hline
+        Total & `r suma_matriculas[1]`& `r tasa_matriculas[1]`\% & `r suma_matriculas[2]`& `r tasa_matriculas[2]`\%  & `r suma_matriculas[3]`& `r tasa_matriculas[3]`\%  & `r suma_matriculas[4]`& `r tasa_matriculas[4]`\%  & `r suma_matriculas[5]`& `r tasa_matriculas[5]`\%  \\ \hline
+        \cellcolor{gray!25}Modalidad Presencial & \multicolumn{10}{c|}{\cellcolor{gray!25}} \\ \hline
+        Regular & `r matricula_total_regular[1]`& `r t_matricula_regular[1]`\% & `r matricula_total_regular[2]`& `r t_matricula_regular[2]`\% & `r matricula_total_regular[3]`& `r t_matricula_regular[3]`\% &`r matricula_total_regular[4]` & `r t_matricula_regular[4]`\% & `r matricula_total_regular[5]`& `r t_matricula_regular[5]`\% \\ \hline
+        Regular especial & `r matricula_total_especial[1]`& `r t_matricula_especial[1]`\% & `r matricula_total_especial[2]`& `r t_matricula_especial[2]`\% &`r matricula_total_especial[3]`& `r t_matricula_especial[3]`\% & `r matricula_total_especial[4]`& `r t_matricula_especial[4]`\% & `r matricula_total_especial[5]`& `r t_matricula_especial[5]`\%  \\ \hline
+        No cohorte & `r matricula_total_no_cohorte[1]`& `r t_matricula_no_cohorte[1]`\% & `r matricula_total_no_cohorte[2]`& `r t_matricula_no_cohorte[2]`\% & `r matricula_total_no_cohorte[3]`& `r t_matricula_no_cohorte[3]`\% & `r matricula_total_no_cohorte[4]`& `r t_matricula_no_cohorte[4]`\% & `r matricula_total_no_cohorte[5]`& `r t_matricula_no_cohorte[5]`\% \\ \hline
+        Total & `r suma_matriculas[1]`& `r tasa_matriculas[1]`\% & `r suma_matriculas[2]`& `r tasa_matriculas[2]`\%  & `r suma_matriculas[3]`& `r tasa_matriculas[3]`\%  & `r suma_matriculas[4]`& `r tasa_matriculas[4]`\%  & `r suma_matriculas[5]`& `r tasa_matriculas[5]`\% \\ \hline
+        \cellcolor{gray!25}Tipo de admisión & \multicolumn{10}{c|}{\cellcolor{gray!25}} \\ \hline
+        Postulantes admisión centralizada o regular & `r via_1_pdf2[pivote3-4]`& `r t_via_12[pivote3-4]`\% & `r via_1_pdf2[pivote3-3]`& `r t_via_12[pivote3-3]`\% & `r via_1_pdf2[pivote3-2]`& `r t_via_12[pivote3-2]`\%  & `r via_1_pdf2[pivote3-1]`& `r t_via_12[pivote3-1]`\%  & `r via_1_pdf2[pivote3]`& `r t_via_12[pivote3]`\%  \\ \hline
+        Postulantes admisión directa o especial & `r via_2_pdf2[pivote3-4]`& `r t_via_22[pivote3-4]`\% & `r via_2_pdf2[pivote3-3]`& `r t_via_22[pivote3-3]`\% & `r via_2_pdf2[pivote3-2]`& `r t_via_22[pivote3-2]`\% & `r via_2_pdf2[pivote3-1]`& `r t_via_22[pivote3-1]`\% & `r via_2_pdf2[pivote3]`& `r t_via_22[pivote3]`\% \\ \hline
+        Postulantes admisión PAP & `r via_3_pdf2[pivote3-4]`& `r t_via_32[pivote3-4]`\% & `r via_3_pdf2[pivote3-3]`& `r t_via_32[pivote3-3]`\% & `r via_3_pdf2[pivote3-2]`& `r t_via_32[pivote3-2]`\% & `r via_3_pdf2[pivote3-1]`& `r t_via_32[pivote3-1]`\% & `r via_3_pdf2[pivote3]`& `r t_via_32[pivote3]`\% \\ \hline
+        Otras & `r via_4_pdf2[pivote3-4]`& `r t_via_42[pivote3-4]`\% & `r via_4_pdf2[pivote3-3]`& `r t_via_42[pivote3-3]`\% & `r via_4_pdf2[pivote3-2]`& `r t_via_42[pivote3-2]`\% & `r via_4_pdf2[pivote3-1]`& `r t_via_42[pivote3-1]`\% & `r via_4_pdf2[pivote3]`& `r t_via_42[pivote3]`\%  \\ \hline
+        \cellcolor{gray!25}Total & `r suma_vias2[pivote3-4]`& `r tasa_vias2[pivote3-4]`\% & `r suma_vias2[pivote3-3]`& `r tasa_vias2[pivote3-3]`\%  & `r suma_vias2[pivote3-2]`& `r tasa_vias2[pivote3-2]`\%  & `r suma_vias2[pivote3-1]`& `r tasa_vias2[pivote3-1]`\%  & `r suma_vias2[pivote3]`& `r tasa_vias2[pivote3]`\%  \\ \hline
+    \end{tabular}
+    }
+\end{table}
+
+```{r, echo=F, warning=F, message=F}
+# Para cosas de la ley 20.903
+# Falta el archivo para poder trabajarlo
+library(readxl)
+library(openxlsx)
+setwd("C:/Users/DELL/Desktop/Fichas")
+BD <- read_excel("FULL LEY 20903 1212.xlsx", sheet = "FULL") #Se supone solo 2023
+#names(BD)
+considerar <- c("NUMERO_DOCUMENTO","ANYO_PROCESO","CODIGO","BVP.NOMBRE_CARRERA","BVP.SEXO","CONDICIÓN AJUSTADA","BVP.ANIO_INGRESO_CARRERA_ACTUAL")
+BD_2 <- BD[,considerar]
+names(BD_2)[5] <- "sexo"
+names(BD_2)[6] <- "condicion"
+#View(BD_2)
+#colSums(is.na(BD_2))
+# Quitar los NA
+for(i in 1:nrow(BD_2)){
+    if(is.na(BD_2[i,2])){
+        BD_2[i,2] <- ""
+    }
+}
+#colSums(is.na(BD_2))
+# Por problemas en la categorizacion se hicieron los cambios en el excel, originalmente el recorrido de la condicion ajustada es de 9-13,
+# ahora es de 9-16, donde 14 equivale a 10, 15 a 12 y 16 a 13, se hicieron nuevas ya que cumplian solo la mitad del criterio, pero por la
+# ficha se uniran esos casos para los resportes, cambiar en caso de ser necesario
+# Veo que el codigo este
+codigos <- unique(BD_2$CODIGO)
+BD_2 <- subset(BD_2, BD_2$BVP.ANIO_INGRESO_CARRERA_ACTUAL == 2023)
+valores <- c()
+if(codigo_demre %in% codigos){
+    va <- subset(BD_2, BD_2$CODIGO == codigo_demre)
+    condicions <- subset(va, va$condicion == 9)
+    hombre <- subset(condicions, condicions$sexo == "M")
+    valores <- c(valores, nrow(hombre))
+    mujer <- subset(condicions, condicions$sexo == "F")
+    valores <- c(valores, nrow(mujer))
+    condicions <- subset(va, va$condicion == 10 | va$condicion == 14)
+    hombre <- subset(condicions, condicions$sexo == "M")
+    valores <- c(valores, nrow(hombre))
+    mujer <- subset(condicions, condicions$sexo == "F")
+    valores <- c(valores, nrow(mujer))
+    condicions <- subset(va, va$condicion == 11)
+    hombre <- subset(condicions, condicions$sexo == "M")
+    valores <- c(valores, nrow(hombre))
+    mujer <- subset(condicions, condicions$sexo == "F")
+    valores <- c(valores, nrow(mujer))
+    condicions <- subset(va, va$condicion == 12 | va$condicion == 15)
+    hombre <- subset(condicions, condicions$sexo == "M")
+    valores <- c(valores, nrow(hombre))
+    mujer <- subset(condicions, condicions$sexo == "F")
+    valores <- c(valores, nrow(mujer))
+    condicions <- subset(va, va$condicion == 13 | va$condicion == 16)
+    hombre <- subset(condicions, condicions$sexo == "M")
+    valores <- c(valores, nrow(hombre))
+    mujer <- subset(condicions, condicions$sexo == "F")
+    valores <- c(valores, nrow(mujer))
+    suma_h <- sum(valores[c(T,F)])
+    suma_m <- sum(valores[c(F,T)])
+}else{
+    valores <- rep(0, 10)
+    suma_h <- 0
+    suma_m <- 0
+}
+```
+
+\newpage
+
+\begin{center}
+    \large\textbf{Estudiantes regulares vigentes primer año 2023 ley 20.903: Plan regular}
+\end{center}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|c|c|c|}
+\hline
+ & \multicolumn{2}{|c|}{\cellcolor{gray!25}N° de estudiantes de primer año por sexo}\\
+ \hline
+ \cellcolor{gray!25}Tipo de cumplimiento del requisito de admisión & \cellcolor{gray!25}Hombre & \cellcolor{gray!25}Mujer \\
+ \hline
+ \cellcolor{gray!25}Prueba de acceso & `r valores[1]` & `r valores[2]` \\
+ \hline
+ \cellcolor{gray!25}Promedio de notas & `r valores[3]` & `r valores[4]` \\
+ \hline
+ \cellcolor{gray!25}Promedio de notas + Prueba de acceso & `r valores[5]` & `r valores[6]` \\
+ \hline
+ \cellcolor{gray!25}Programa de preparación y acceso & `r valores[7]` & `r valores[8]` \\
+ \hline
+ \cellcolor{gray!25}Programa de preparación y acceso + Situación de discapacidad & `r valores[9]` & `r valores[10]` \\
+ \hline
+ \cellcolor{gray!25}Total & `r suma_h` & `r suma_m`\\
+ \hline
+\end{tabular}
+\end{table}
